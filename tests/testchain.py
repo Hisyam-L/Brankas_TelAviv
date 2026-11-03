@@ -14,4 +14,4 @@ mentah = json.loads(CHAIN_PATH.read_text())
 mentah[1]["data"]["pemilik"] = "Penjahat"
 CHAIN_PATH.write_text(json.dumps(mentah))
 
-print("Setelah diubah  :", Blockchain().is_valid())/home/hisyamlbaihaqi/Downloads/images (1).jpeg
+print("Setelah diubah  :", Blockchain().is_valid())

@@ -1,9 +1,14 @@
+from __future__ import annotations
+
 import os
 import struct
+from pathlib import Path
 
 from Crypto.Cipher import ChaCha20_Poly1305
 from Crypto.Protocol.KDF import scrypt
 from Crypto.Random import get_random_bytes
+
+from config import CHUNK_SIZE, SALT_LEN, SCRYPT_N, SCRYPT_P, SCRYPT_R
 
 
 class FileCipherError(Exception):
@@ -12,23 +17,23 @@ class FileCipherError(Exception):
 
 class ChaChaFileCipher:
     """
-    Enkripsi/dekripsi file per chunk dengan ChaCha20-Poly1305.
+    Enkripsi/dekripsi file per chunk dengan ChaCha20-Poly1305 dan penurunan kunci scrypt.
 
     Format file hasil enkripsi:
-        salt (16)
+        salt (16 byte)
         lalu berulang per chunk:
             flag_terakhir (1) | panjang (4) | nonce (12) | tag (16) | isi (panjang)
 
-    Nomor urut chunk dan flag_terakhir ikut diotentikasi (AAD), jadi chunk yang
-    ditukar, dihapus, atau file yang terpotong akan terdeteksi saat dekripsi.
+    Nomor urut chunk dan flag_terakhir diotentikasi sebagai AAD (Additional Authenticated Data),
+    sehingga chunk yang tertukar, dihapus, disisipkan, atau file terpotong akan terdeteksi
+    saat dekripsi.
     """
 
-    SALT_LEN = 16
     NONCE_LEN = 12
     TAG_LEN = 16
     HEADER_LEN = 5  # flag (1) + panjang (4)
 
-    def __init__(self, password: str, chunk_size: int = 1024 * 1024):
+    def __init__(self, password: str, chunk_size: int = CHUNK_SIZE):
         if not password:
             raise FileCipherError("Password tidak boleh kosong")
         if chunk_size < 1:
@@ -37,16 +42,23 @@ class ChaChaFileCipher:
         self.chunk_size = chunk_size
 
     # ------------------------------------------------------------ helper
-    @staticmethod
-    def _derive_key(password: str, salt: bytes) -> bytes:
-        return scrypt(password.encode("utf-8"), salt, key_len=32, N=2**15, r=8, p=1)
+    @classmethod
+    def _derive_key(cls, password: str, salt: bytes) -> bytes:
+        return scrypt(
+            password.encode("utf-8"),
+            salt,
+            key_len=32,
+            N=SCRYPT_N,
+            r=SCRYPT_R,
+            p=SCRYPT_P,
+        )
 
     @staticmethod
     def _aad(counter: int, is_last: bool) -> bytes:
         return struct.pack(">QB", counter, 1 if is_last else 0)
 
     def _write_chunk(self, dst, key: bytes, counter: int, is_last: bool, data: bytes) -> None:
-        cipher = ChaCha20_Poly1305.new(key=key)  # nonce baru tiap chunk
+        cipher = ChaCha20_Poly1305.new(key=key)  # Nonce acak unik tiap chunk
         cipher.update(self._aad(counter, is_last))
         isi, tag = cipher.encrypt_and_digest(data)
         dst.write(
@@ -65,25 +77,42 @@ class ChaChaFileCipher:
         return data
 
     @staticmethod
-    def _cleanup(path: str) -> None:
+    def _cleanup(path: str | Path) -> None:
         try:
             os.remove(path)
         except OSError:
             pass
 
     # ------------------------------------------------------------ public
-    def encrypt_file(self, path_asal: str, path_hasil: str) -> None:
-        salt = get_random_bytes(self.SALT_LEN)
+    def encrypt_file(
+        self,
+        path_asal: str | Path,
+        path_hasil: str | Path,
+        progress_callback: callable | None = None,
+    ) -> None:
+        path_asal = Path(path_asal)
+        path_hasil = Path(path_hasil)
+        salt = get_random_bytes(SALT_LEN)
         key = self._derive_key(self.password, salt)
+
+        total_bytes = path_asal.stat().st_size if path_asal.exists() else 0
+        processed_bytes = 0
+
         try:
             with open(path_asal, "rb") as src, open(path_hasil, "wb") as dst:
                 dst.write(salt)
                 counter = 0
                 current = src.read(self.chunk_size)
                 while True:
-                    nxt = src.read(self.chunk_size)  # baca ke depan untuk tahu chunk terakhir
+                    processed_bytes += len(current)
+                    nxt = src.read(self.chunk_size)  # Baca ke depan untuk memastikan apakah ini chunk terakhir
                     is_last = not nxt
                     self._write_chunk(dst, key, counter, is_last, current)
+
+                    if progress_callback and total_bytes > 0:
+                        progress = min(1.0, processed_bytes / total_bytes)
+                        progress_callback(progress)
+
                     if is_last:
                         break
                     current = nxt
@@ -92,25 +121,42 @@ class ChaChaFileCipher:
             self._cleanup(path_hasil)
             raise FileCipherError(f"Gagal membaca/menulis file: {e}") from e
 
-    def decrypt_file(self, path_asal: str, path_hasil: str) -> None:
+    def decrypt_file(
+        self,
+        path_asal: str | Path,
+        path_hasil: str | Path,
+        progress_callback: callable | None = None,
+    ) -> None:
+        path_asal = Path(path_asal)
+        path_hasil = Path(path_hasil)
+        total_bytes = path_asal.stat().st_size if path_asal.exists() else 0
+        processed_bytes = 0
+
         try:
             with open(path_asal, "rb") as src, open(path_hasil, "wb") as dst:
-                salt = self._read_exact(src, self.SALT_LEN)
+                salt = self._read_exact(src, SALT_LEN)
                 key = self._derive_key(self.password, salt)
                 counter = 0
+                processed_bytes += SALT_LEN
+
                 while True:
                     header = src.read(self.HEADER_LEN)
                     if len(header) != self.HEADER_LEN:
                         raise FileCipherError("File terenkripsi rusak atau terpotong")
                     flag, panjang = struct.unpack(">BI", header)
                     if flag not in (0, 1):
-                        raise FileCipherError("Format file tidak valid")
+                        raise FileCipherError("Format file terenkripsi tidak valid")
                     if panjang > self.chunk_size:
-                        raise FileCipherError("Ukuran chunk tidak valid (chunk_size berbeda?)")
+                        raise FileCipherError("Ukuran chunk tidak valid (file tidak sesuai)")
 
                     nonce = self._read_exact(src, self.NONCE_LEN)
                     tag = self._read_exact(src, self.TAG_LEN)
                     isi = self._read_exact(src, panjang)
+
+                    processed_bytes += self.HEADER_LEN + self.NONCE_LEN + self.TAG_LEN + panjang
+                    if progress_callback and total_bytes > 0:
+                        progress = min(1.0, processed_bytes / total_bytes)
+                        progress_callback(progress)
 
                     is_last = flag == 1
                     cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)

@@ -3,7 +3,7 @@ customtkinter==6.0.0
 darkdetect==0.8.0
 numpy==2.5.4
 opencv-contrib-python==5.0.0.93
-packaging==26.3
 pillow==13.0.0
 pycryptodome==4.2.0
+pytest==9.2.0
 pyudev==0.24.5

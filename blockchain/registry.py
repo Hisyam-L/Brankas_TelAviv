@@ -8,11 +8,11 @@ from blockchain.blockchain import Blockchain
 
 
 class DocumentError(Exception):
-    """Error yang aman ditampilkan langsung ke pengguna di UI."""
+    """Error domain registri dokumen yang aman ditampilkan langsung ke pengguna di UI."""
 
 
-def hash_file(path, chunk_size: int = 1024 * 1024) -> str:
-    """SHA-256 file, dibaca per potongan supaya file besar tidak memenuhi RAM."""
+def hash_file(path: str | Path, chunk_size: int = 1024 * 1024) -> str:
+    """Menghitung SHA-256 berkas per potongan (chunk) agar hemat memori pada berkas besar."""
     sha = hashlib.sha256()
     try:
         with open(path, "rb") as f:
@@ -27,64 +27,87 @@ def hash_file(path, chunk_size: int = 1024 * 1024) -> str:
 
 
 class DocumentRegistry:
-    """Mencatat sidik jari dokumen penting di blockchain dan memverifikasinya."""
+    """
+    Mencatat sidik jari (SHA-256) aset dokumen penting ke dalam blockchain
+    dan memverifikasi keaslian serta integritasnya.
+
+    Catatan Keamanan & Keterbatasan:
+    Blockchain ini bersifat single-node / lokal (tidak terdistribusi peer-to-peer).
+    Pemeriksaan integritas mendeteksi pemalsuan konten atau berkas yang diubah,
+    namun pemilik perangkat yang memiliki akses fisik dapat menulis ulang blockchain.
+    """
 
     def __init__(self, blockchain: Blockchain):
         self.blockchain = blockchain
 
     def _documents(self):
-        """Blok yang berisi dokumen (genesis dilewati)."""
+        """Mengambil blok yang menyimpan metadata dokumen (melewati genesis)."""
         return [b for b in self.blockchain.chain if "hash_file" in b.data]
 
-    def register(self, path, jenis: str, pemilik: str):
+    def register(self, path: str | Path, jenis: str, pemilik: str):
+        """Mendaftarkan sidik jari dokumen ke blockchain."""
         if not jenis.strip() or not pemilik.strip():
             raise DocumentError("Jenis dan pemilik dokumen tidak boleh kosong")
 
-        h = hash_file(path)
+        p = Path(path)
+        if not p.exists() or not p.is_file():
+            raise DocumentError(f"File dokumen tidak ditemukan: {path}")
+
+        h = hash_file(p)
         for blok in self._documents():
-            if blok.data["hash_file"] == h:
+            if blok.data.get("hash_file") == h:
                 raise DocumentError(
                     f"Dokumen ini sudah terdaftar di blok #{blok.index} "
-                    f"atas nama {blok.data['pemilik']}"
+                    f"atas nama {blok.data.get('pemilik')}"
                 )
 
         return self.blockchain.add_block({
             "jenis": jenis.strip(),
             "pemilik": pemilik.strip(),
-            "nama_file": Path(path).name,
+            "nama_file": p.name,
             "hash_file": h,
             "tanggal": date.today().isoformat(),
         })
 
-    def verify(self, path, block_index: int | None = None) -> tuple[str, str]:
+    def verify(self, path: str | Path, block_index: int | None = None) -> tuple[str, str]:
         """
-        Mengembalikan (status, keterangan). Status:
-          ASLI, DIUBAH, TIDAK_TERDAFTAR, RANTAI_RUSAK
-
-        block_index diisi kalau pengguna memilih dokumen dari daftar,
-        sehingga file yang diubah bisa dibedakan dari file yang memang belum terdaftar.
+        Memverifikasi integritas berkas terhadap catatan di blockchain.
+        Mengembalikan tuple: (status, keterangan)
+        Status: "ASLI", "DIUBAH", "TIDAK_TERDAFTAR", "RANTAI_RUSAK"
         """
         valid, pesan = self.blockchain.is_valid()
         if not valid:
             return "RANTAI_RUSAK", f"Blockchain dimanipulasi: {pesan}"
 
-        h = hash_file(path)
+        p = Path(path)
+        if not p.exists() or not p.is_file():
+            raise DocumentError(f"File dokumen tidak ditemukan: {path}")
+
+        h = hash_file(p)
 
         if block_index is not None:
             target = next((b for b in self._documents() if b.index == block_index), None)
             if target is None:
                 raise DocumentError(f"Blok #{block_index} bukan blok dokumen")
-            if target.data["hash_file"] == h:
-                return "ASLI", f"Cocok dengan blok #{target.index} ({target.data['jenis']}, {target.data['pemilik']})"
+            if target.data.get("hash_file") == h:
+                return "ASLI", f"Cocok dengan blok #{target.index} ({target.data.get('jenis')}, {target.data.get('pemilik')})"
             return "DIUBAH", f"Isi file berbeda dari yang tercatat di blok #{target.index}"
 
         for blok in self._documents():
-            if blok.data["hash_file"] == h:
-                return "ASLI", f"Cocok dengan blok #{blok.index} ({blok.data['jenis']}, {blok.data['pemilik']})"
+            if blok.data.get("hash_file") == h:
+                return "ASLI", f"Cocok dengan blok #{blok.index} ({blok.data.get('jenis')}, {blok.data.get('pemilik')})"
         return "TIDAK_TERDAFTAR", "Tidak ada dokumen dengan sidik jari ini di blockchain"
 
     def list_documents(self) -> list[dict]:
+        """Mengambil ringkasan semua dokumen yang tercatat di blockchain."""
         return [
-            {"blok": b.index, **{k: b.data[k] for k in ("jenis", "pemilik", "nama_file", "tanggal")}}
+            {
+                "blok": b.index,
+                "jenis": b.data.get("jenis", "-"),
+                "pemilik": b.data.get("pemilik", "-"),
+                "nama_file": b.data.get("nama_file", "-"),
+                "tanggal": b.data.get("tanggal", "-"),
+                "hash_file": b.data.get("hash_file", "-"),
+            }
             for b in self._documents()
         ]

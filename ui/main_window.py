@@ -3,12 +3,14 @@ from __future__ import annotations
 from typing import Callable
 import customtkinter as ctk
 
+from auth.dongle import DongleManager
 from auth.session import Session
 from ui.asset_page import AssetPage
 from ui.file_page import FilePage
 from ui.image_page import ImagePage
 from ui.password_page import PasswordPage
 from ui.text_page import TextPage
+from ui.widgets import StatusLabel
 from ui.theme import (
     ACCENT_COLOR,
     BG_DARK,
@@ -36,11 +38,13 @@ class MainWindow(ctk.CTk):
         username: str = "Administrator",
         session: Session | None = None,
         on_logout: Callable[[], None] | None = None,
+        dongle_manager: DongleManager | None = None,
     ):
         super().__init__()
         self.session: Session | None = session or Session(username=username)
         self.username = self.session.username if self.session else username
         self.on_logout = on_logout
+        self.dongle_manager = dongle_manager or DongleManager()
 
         # Konfigurasi Jendela
         self.title("SafeVault - Brankas Digital Kriptografi")
@@ -134,7 +138,18 @@ class MainWindow(ctk.CTk):
             command=self._toggle_theme,
         )
         self.theme_switch.select()
-        self.theme_switch.pack(fill="x", pady=(0, 12))
+        self.theme_switch.pack(fill="x", pady=(0, 8))
+
+        # Tombol Ganti Dongle (Hanya setelah login penuh)
+        self.change_dongle_btn = ctk.CTkButton(
+            bottom_frame,
+            text="🔑 Ganti Dongle",
+            fg_color="gray25",
+            hover_color="gray35",
+            font=FONT_SMALL,
+            command=self._open_change_dongle_dialog,
+        )
+        self.change_dongle_btn.pack(fill="x", pady=(0, 8))
 
         # Tombol Kunci Brankas (Logout)
         self.logout_btn = ctk.CTkButton(
@@ -194,3 +209,53 @@ class MainWindow(ctk.CTk):
             self.on_logout()
         else:
             self.destroy()
+
+    def _open_change_dongle_dialog(self) -> None:
+        """Membuka dialog untuk mengganti/mendaftarkan ulang dongle (hanya saat login penuh)."""
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Pengaturan Kunci Dongle")
+        dlg.geometry("460x340")
+        dlg.minsize(420, 300)
+        dlg.grab_set()
+
+        ctk.CTkLabel(dlg, text="🔑 Ganti Kunci Hardware Dongle", font=FONT_HEADER).pack(padx=16, pady=(16, 6))
+        ctk.CTkLabel(
+            dlg,
+            text=(
+                "Pilih drive flashdisk baru yang akan dijadikan kunci brankas.\n"
+                "Kunci dongle lama tidak akan berlaku lagi setelah proses ini berhasil."
+            ),
+            font=FONT_SMALL,
+            text_color=TEXT_MUTED,
+            justify="center",
+        ).pack(padx=16, pady=(0, 12))
+
+        mounts = list(self.dongle_manager.mounts_fn())
+        mount_var = ctk.StringVar(value=mounts[0] if mounts else "")
+        menu = ctk.CTkOptionMenu(
+            dlg, values=mounts or ["(Tidak ada drive terdeteksi)"], variable=mount_var, font=FONT_REGULAR
+        )
+        menu.pack(fill="x", padx=24, pady=(0, 10))
+
+        status_lbl = StatusLabel(dlg)
+        status_lbl.pack(fill="x", padx=24, pady=(0, 12))
+
+        def save():
+            m = mount_var.get().strip()
+            if not m or m.startswith("("):
+                status_lbl.set_status("Pilih drive flashdisk yang valid.", "error")
+                return
+            try:
+                self.dongle_manager.register(m, allow_overwrite=True)
+                status_lbl.set_status("✓ Dongle baru berhasil didaftarkan!", "success")
+                dlg.after(1000, dlg.destroy)
+            except Exception as e:
+                status_lbl.set_status(f"Gagal mengganti dongle: {e}", "error")
+
+        ctk.CTkButton(
+            dlg, text="💾 Simpan & Tulis Token Baru", font=FONT_BOLD, height=36, command=save
+        ).pack(fill="x", padx=24, pady=(0, 8))
+
+        ctk.CTkButton(
+            dlg, text="Batal", fg_color="gray30", hover_color="gray40", height=32, command=dlg.destroy
+        ).pack(fill="x", padx=24, pady=(0, 12))

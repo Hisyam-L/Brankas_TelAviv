@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image
 import customtkinter as ctk
 
-from auth.dongle import DongleChecker, get_dongle_checker
+from auth.dongle import DongleError, DongleManager, DongleStatus
 from auth.face_auth import FaceAuth, FaceAuthError
 from auth.password_auth import PasswordAuth, PasswordAuthError
 from auth.session import Session
@@ -50,13 +50,14 @@ class LoginWindow(ctk.CTk):
     def __init__(
         self,
         auth: PasswordAuth | None = None,
-        dongle_checker: DongleChecker | None = None,
+        dongle_manager: DongleManager | None = None,
         face_auth: FaceAuth | None = None,
         on_success: Callable[[Session], None] | None = None,
+        **kwargs,
     ):
         super().__init__()
         self.auth = auth or PasswordAuth()
-        self.dongle_checker = dongle_checker or get_dongle_checker()
+        self.dongle_manager = dongle_manager or kwargs.get("dongle_checker") or DongleManager()
         self.face_auth = face_auth or FaceAuth()
         self.on_success = on_success
 
@@ -133,19 +134,6 @@ class LoginWindow(ctk.CTk):
             font=FONT_SMALL,
             text_color=TEXT_MUTED,
         ).pack(anchor="center", pady=(2, 6))
-
-        # Peringatan Mode Simulasi jika aktif
-        if self.dongle_checker.is_simulated:
-            dev_banner = ctk.CTkFrame(
-                self.header_frame, fg_color="#422500", border_width=1, border_color="#d29922"
-            )
-            dev_banner.pack(fill="x", pady=(4, 6))
-            ctk.CTkLabel(
-                dev_banner,
-                text="⚠️ PERINGATAN: Mode Pengembang Aktif (Simulated Dongle)",
-                font=FONT_SMALL,
-                text_color="#f0b72f",
-            ).pack(padx=10, pady=4)
 
         # Status Label Umum
         self.global_status = StatusLabel(self.header_frame)
@@ -299,36 +287,25 @@ class LoginWindow(ctk.CTk):
         if self.is_locked:
             return
 
-        self.btn_check_dongle.configure(state="disabled", text="Memeriksa perangkat USB...")
-        self.dongle_status.set_status("Memindai port USB...", "info")
+        self.btn_check_dongle.configure(state="disabled", text="Memeriksa token dongle...")
+        self.dongle_status.set_status("Memverifikasi token dongle...", "info")
 
         def task():
-            present = self.dongle_checker.is_present()
-            serial = self.dongle_checker.get_serial()
+            try:
+                st = self.dongle_manager.verify()
+            except DongleError as e:
+                st = DongleStatus(False, str(e))
 
             def finish():
                 self.btn_check_dongle.configure(state="normal", text="🔌 Periksa Sambungan Dongle")
-                user_info = self.auth.get_user(self.active_username)
-                registered_serial = user_info["dongle_serial"] if user_info else None
-
-                if not present or not serial:
-                    self.dongle_status.set_status(
-                        "Gagal: Dongle fisik tidak ditemukan. Pastikan USB kunci terpasang.", "error"
-                    )
-                    self._record_failure("Dongle fisik tidak terdeteksi")
+                if not st.ok:
+                    self.dongle_status.set_status(f"Gagal: {st.message}", "error")
+                    self._record_failure(st.message)
                     return
 
-                # Jika pengguna telah mendaftarkan serial tertentu, verifikasi kesesuaiannya
-                if registered_serial and serial != registered_serial:
-                    self.dongle_status.set_status(
-                        f"Gagal: Dongle yang terpasang ({serial}) tidak cocok dengan akun ini.", "error"
-                    )
-                    self._record_failure("Serial dongle tidak cocok")
-                    return
-
-                self.verified_dongle_serial = serial
+                self.verified_dongle_serial = st.mount or "VALID"
                 self.dongle_status.set_status(
-                    f"✓ Dongle Terverifikasi! (Serial: {serial})", "success"
+                    f"✓ {st.message}! (Drive: {st.mount})", "success"
                 )
 
                 # Berhasil lolos Tahap 1 -> Lanjut ke Tahap 2
@@ -753,15 +730,21 @@ class LoginWindow(ctk.CTk):
         ).grid(row=0, column=1 if self.auth.has_users() else 0, columnspan=1 if self.auth.has_users() else 2, padx=(6, 0) if self.auth.has_users() else (0, 0), sticky="ew")
 
     def _setup_detect_dongle(self) -> None:
-        serial = self.dongle_checker.get_serial()
-        if serial:
-            self.setup_dongle_serial = serial
+        try:
+            st = self.dongle_manager.verify()
+            if st.ok:
+                self.setup_dongle_serial = st.mount
+                self.setup_dongle_lbl.configure(
+                    text=f"✓ Dongle terdeteksi: {st.mount}", text_color=SUCCESS_COLOR
+                )
+            else:
+                self.setup_dongle_lbl.configure(
+                    text=f"Dongle belum valid: {st.message}",
+                    text_color=ERROR_COLOR,
+                )
+        except Exception as e:
             self.setup_dongle_lbl.configure(
-                text=f"✓ Dongle terdeteksi: {serial}", text_color=SUCCESS_COLOR
-            )
-        else:
-            self.setup_dongle_lbl.configure(
-                text="Perangkat USB tidak ditemukan. Tancapkan flashdisk lalu klik lagi.",
+                text=f"Error deteksi dongle: {e}",
                 text_color=ERROR_COLOR,
             )
 
@@ -817,6 +800,14 @@ class LoginWindow(ctk.CTk):
             self.setup_status.set_status(str(e), "error")
         except Exception as e:
             self.setup_status.set_status(f"Gagal mendaftar: {e}", "error")
+
+    def destroy(self) -> None:
+        """Penghancuran aman agar tidak memicu TclError jika sudah tertutup."""
+        try:
+            if self.winfo_exists():
+                super().destroy()
+        except Exception:
+            pass
 
     def _on_close(self) -> None:
         """Penanganan saat jendela ditutup."""

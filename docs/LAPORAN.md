@@ -67,8 +67,8 @@ Untuk mengatasi kerentanan tersebut, diperlukan pendekatan keamanan berlapis (*d
 4. Menyediakan dokumentasi arsitektur, laporan akademik, dan materi presentasi ilmiah.
 
 ### 1.4 Batasan Sistem
-1. Aplikasi dijalankan pada sistem operasi Linux (Fedora 41/42) dengan lingkungan Python 3.14.
-2. Dongle fisik diidentifikasi berdasarkan nomor seri pengontrol perangkat USB melalui subsistem `pyudev`.
+1. Aplikasi dijalankan pada sistem operasi Linux (Fedora 41/42) dengan lingkungan Python 3.14 (serta kompatibel untuk platform Windows).
+2. Dongle fisik diidentifikasi berdasarkan token kriptografi terikat ID volume partisi drive (UUID di Linux / Serial Volume di Windows) dengan verifikasi hash SHA-256 1:1.
 3. Verifikasi biometrik wajah menggunakan Haar Cascade dan LBPH Face Recognizer tanpa sensor kedalaman 3D (*depth sensor*).
 4. Steganografi citra menggunakan format PNG lossless untuk menjaga integritas bit muatan LSB.
 5. Sistem blockchain beroperasi sebagai buku besar terdesentralisasi lokal (*single-node blockchain*) untuk pencatatan integritas berkas internal.
@@ -216,8 +216,8 @@ Antarmuka pengguna terdiri atas jendela login bertahap dan jendela utama dengan 
 6. **Menu 5: Daftar Dokumen & Blockchain:** Pendaftaran sidik jari SHA-256 berkas dokumen, verifikasi keaslian (status ASLI / DIUBAH / TIDAK TERDAFTAR), dan validasi integritas rantai blok (*Proof-of-Work*).
    `[SCREENSHOT: Halaman Aset Dokumen & Validasi Blockchain]`
 
-### 4.3 Hasil Pengujian Fungsional (55 Test Case)
-Pengujian otomatis menggunakan `pytest` menghasilkan **100% kelulusan (55 passed)**:
+### 4.3 Hasil Pengujian Fungsional (74 Test Case)
+Pengujian otomatis menggunakan `pytest` menghasilkan **100% kelulusan (74 passed)**:
 
 | Modul Uji | File Pengujian | Jumlah Kasus | Status | Keterangan |
 |:---|:---|:---:|:---:|:---|
@@ -228,11 +228,12 @@ Pengujian otomatis menggunakan `pytest` menghasilkan **100% kelulusan (55 passed
 | Buku Besar Blockchain | `tests/test_blockchain.py` | 6 | **LULUS** | Genesis block, PoW difficulty=3, deteksi rantai putus |
 | Registri Dokumen | `tests/test_registry.py` | 6 | **LULUS** | Verifikasi SHA-256 status ASLI, DIUBAH, TIDAK TERDAFTAR |
 | Basis Data SQLite | `tests/test_db.py` | 5 | **LULUS** | Simpan, buka, migrasi tabel kategori, isolasi koneksi |
-| Autentikasi Dongle | `tests/test_auth_dongle.py` | 3 | **LULUS** | UsbSerial, HMAC-SHA256 KeyFile, SimulatedDongle |
+| Autentikasi Dongle (Hardware Token) | `tests/test_dongle.py` | 9 | **LULUS** | Token 1:1, ID Volume drive, deteksi salinan, tampered token, DongleWatcher |
+| Re-export Tes Dongle | `tests/test_auth_dongle.py` | 9 | **LULUS** | Kompatibilitas runner pengujian suite |
 | Autentikasi Biometrik | `tests/test_auth_face.py` | 2 | **LULUS** | Haar cascade, pelatihan LBPH, verifikasi ambang jarak |
 | Autentikasi Password | `tests/test_auth_password.py` | 5 | **LULUS** | Hash bcrypt, syarat panjang, first-run detection |
-| Smoke Test Antarmuka | `tests/test_ui_smoke.py` | 4 | **LULUS** | Headless smoke MainWindow, 3-factor login, lockout 30s |
-| **TOTAL** | **11 File Pengujian** | **55** | **100% PASSED** | **Semua Pengujian Lolos Sempurna** |
+| Smoke Test Antarmuka | `tests/test_ui_smoke.py` | 8 | **LULUS** | Headless DongleGate setup, gate locked, MainWindow 5 menu, dialog ganti dongle, 3-factor login, lockout 30s |
+| **TOTAL** | **12 File Pengujian** | **74** | **100% PASSED** | **Semua Pengujian Lolos Sempurna** |
 
 ### 4.4 Pengujian Skenario Kegagalan & Penanganan Error
 Sistem diuji dengan skenario ekstrem untuk memastikan stabilitas dan ketiadaan pesan *traceback* mentah ke pengguna:

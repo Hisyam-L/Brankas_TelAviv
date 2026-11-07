@@ -51,12 +51,13 @@ Dokumen ini memuat rancangan **12 Slide Presentasi Tugas Akhir Kriptografi**, le
 
 ### Slide 5: Autentikasi 3-Faktor (Dongle → Wajah → Sandi)
 - **Poin Kunci:**
-  - Faktor 1: USB Hardware Dongle (`pyudev` device serial).
+  - Faktor 1: Hardware Dongle Token terikat ID Volume (`SHA-256(salt + secret + ID_VOLUME)`).
   - Faktor 2: Biometrik Pengenal Wajah (Haar Cascade + LBPH OpenCV).
   - Faktor 3: Kata Sandi Brankas (bcrypt constant-time verification).
+  - Runtime Security: `DongleWatcher` memantau keberadaan dongle; jika dicabut, brankas terkunci seketika.
   - Mekanisme Anti-Bruteforce: Penguncian otomatis 30 detik jika gagal 3 kali.
 - **Naskah Bicara (1.5 Menit):**
-  > "Alur masuk sistem mengombinasikan something you have (USB flashdisk), something you are (wajah pemilik), dan something you know (kata sandi). Jika salah satu gagal, brankas tidak dapat dibuka. Percobaan salah tiga kali akan langsung memicu penguncian sistem selama 30 detik."
+  > "Alur masuk sistem mengombinasikan something you have (USB flashdisk dengan token kriptografis terikat ID volume), something you are (wajah pemilik), dan something you know (kata sandi). Jika salah satu gagal, brankas tidak dapat dibuka. Bahkan saat brankas terbuka, jika dongle dicabut, aplikasi otomatis mengosongkan memori dan terkunci kembali."
 
 ---
 
@@ -123,7 +124,7 @@ Dokumen ini memuat rancangan **12 Slide Presentasi Tugas Akhir Kriptografi**, le
 ### Slide 12: Kesimpulan & Sesi Tanya Jawab
 - **Poin Kunci:**
   - 100% dari 8 Kriteria Dosen Terpenuhi.
-  - 55 Test Case Otomatis Berhasil (pytest).
+  - 74 Test Case Otomatis Berhasil (pytest).
   - Siap untuk Live Demo pengujian normal & pengujian skenario gagal.
 - **Naskah Bicara (0.5 Menit):**
   > "SafeVault membuktikan bahwa kombinasi teknik kriptografi klasik, modern, biometrik, steganografi, dan blockchain dapat diintegrasikan secara harmonis dan kokoh. Terima kasih atas perhatian Bapak/Ibu dosen, kami siap mendemokan aplikasi."
@@ -135,25 +136,31 @@ Dokumen ini memuat rancangan **12 Slide Presentasi Tugas Akhir Kriptografi**, le
 Panduan ini digunakan saat mendemokan aplikasi di hadapan dosen penguji, meliputi skenario sukses dan skenario gagal yang wajib diperlihatkan:
 
 ### BAGIAN 1: Demo Autentikasi Masuk (3-Factor Auth)
-1. **Skenario Gagal 1 (Dongle Dicabut):**
+1. **Skenario Gagal 1 (Dongle Belum Terpasang):**
    - Pastikan flashdisk USB belum dicolokkan.
    - Jalankan `python main.py`.
-   - Klik tombol **"🔌 Periksa Sambungan Dongle"**.
-   - **Hasil Terlihat:** Muncul pesan merah *"Gagal: Dongle fisik tidak ditemukan. Pastikan USB kunci terpasang."* Indikator gagal bertambah 1/3.
-2. **Skenario Berhasil 1 (Dongle Ditancapkan):**
-   - Tancapkan flashdisk USB. Klik tombol **"🔌 Periksa Sambungan Dongle"**.
-   - **Hasil Terlihat:** Muncul pesan hijau *"✓ Dongle Terverifikasi! (Serial: ...)"*. Aplikasi otomatis melangkah ke Tahap 2 (Kamera webcam aktif).
-3. **Skenario Gagal 2 (Wajah Bukan Pemilik / Dihalangi):**
+   - Gerbang **DongleGate** muncul dan secara otomatis memindai.
+   - **Hasil Terlihat:** Muncul status merah *"Akses Ditolak: Dongle tidak terpasang"*. Polling otomatis memeriksa tiap 1 detik.
+2. **Skenario Gagal 2 (Dongle Salinan di Flashdisk Lain):**
+   - Tancapkan flashdisk lain yang berisi salinan file `.safevault_dongle.json`.
+   - **Hasil Terlihat:** Muncul status merah *"Akses Ditolak: Dongle ditemukan tetapi tidak cocok (salinan, rusak, atau bukan dongle ini)"*. Ini membuktikan bahwa pembawaan ID volume (UUID) ke dalam hash berhasil menolak dongle bajakan!
+3. **Skenario Berhasil 1 (Dongle Asli Ditancapkan):**
+   - Tancapkan flashdisk USB asli yang didaftarkan.
+   - Dalam 1 detik, sistem mendeteksi hash cocok 1:1, status berubah hijau *"✓ Dongle valid (/run/media/...)"*, DongleGate tertutup dan LoginWindow terbuka.
+4. **Skenario Gagal 3 (Wajah Bukan Pemilik / Dihalangi):**
    - Tutup kamera webcam dengan tangan atau arahkan ke orang lain.
    - Klik **"👤 Cocokkan Wajah"**.
-   - **Hasil Terlihat:** Muncul pesan merah *"Wajah tidak cocok / tidak terdeteksi"*. Percobaan gagal bertambah 2/3.
-4. **Skenario Simulasi Lockout 30 Detik:**
-   - Sengaja klik gagal sekali lagi hingga mencapai 3 kali percobaan.
+   - **Hasil Terlihat:** Muncul pesan merah *"Wajah tidak cocok / tidak terdeteksi"*. Percobaan gagal bertambah 1/3.
+5. **Skenario Simulasi Lockout 30 Detik:**
+   - Sengaja klik gagal sekali lagi hingga mencapai 3 kali percobaan berturut-turut.
    - **Hasil Terlihat:** Muncul banner merah menyala *"⚠️ SISTEM TERKUNCI KARENA KEGAGALAN BERULANG"*, dengan timer hitung mundur 30 detik. Seluruh tombol dinonaktifkan.
-5. **Skenario Berhasil 2 & 3 (Wajah Cocok + Password Benar):**
+6. **Skenario Berhasil 2 & 3 (Wajah Cocok + Password Benar):**
    - Setelah 30 detik selesai, hadapkan wajah asli ke kamera dan klik "Cocokkan Wajah" (Lolos hijau).
    - Ketikkan kata sandi akun pada field tahap 3, tekan Enter atau klik "🔓 Buka Brankas SafeVault".
    - **Hasil Terlihat:** Jendela login tertutup dan Jendela Utama SafeVault terbuka!
+7. **Skenario Ekstrem (Dongle Dicabut Saat Brankas Terbuka):**
+   - Saat berada di dalam jendela utama SafeVault, cabut flashdisk USB.
+   - Dalam tempo ≤ 2 detik, thread `DongleWatcher` mendeteksi pencabutan, seluruh isi sesi dan memori dihapus, MainWindow seketika tertutup, dan aplikasi kembali terkunci di layar `DongleGate`!
 
 ---
 

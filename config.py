@@ -40,5 +40,8 @@ BLOCKCHAIN_DIFFICULTY = 3
 # Parameter Autentikasi
 FACE_CONFIDENCE_THRESHOLD = 70.0  # LBPH distance (semakin kecil semakin cocok)
 DONGLE_KEY_FILENAME = ".safevault.key"
+TOKEN_NAME = ".safevault_dongle.json"
+DONGLE_REGISTRY_PATH = DATA_DIR / "dongle.json"
+DONGLE_POLL_SECONDS = 2.0
 MAX_LOGIN_ATTEMPTS = 3
 LOCKOUT_SECONDS = 30

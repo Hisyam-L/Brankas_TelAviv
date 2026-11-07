@@ -22,9 +22,11 @@ Dalam perancangan SafeVault, diasumsikan beberapa profil penyerang (*adversary m
 - **Alasan Pemilihan:** Berbeda dari fungsi hash kriptografi umum seperti MD5 atau SHA-256 yang sangat cepat (sehingga rentan serangan *brute-force* berbantuan GPU/ASIC), bcrypt dirancang sengaja lambat (*computationally expensive*) dengan parameter kerja (*cost factor*) dan salt acak unik 128-bit untuk mencegah serangan *rainbow table*.
 - **Perbandingan:** Menggunakan verifikasi *constant-time* (`bcrypt.checkpw`) guna menangkal serangan *timing side-channel*.
 
-### 2.2 Dongle Perangkat Keras: Serial USB / HMAC-SHA256
-- **Algoritma:** Pembacaan serial unik pengontrol flashdisk via `pyudev` dan berkas kunci bertanda tangan HMAC-SHA256.
-- **Alasan Pemilihan:** Mengikat hak akses aplikasi ke kepemilikan fisik perangkat (*something you have*). Aplikasi tidak dapat dijalankan hanya dengan mengetahui kata sandi, melainkan mewajibkan kehadiran fisik dongle terdaftar.
+### 2.2 Dongle Perangkat Keras: Token Kriptografi Terikat Volume (Volume-Bound SHA-256)
+- **Algoritma:** Hashing token `SHA-256(salt + secret + ID_VOLUME)` dan perbandingan *constant-time* `hmac.compare_digest`.
+- **Alasan Pemilihan:** Mengikat hak akses aplikasi ke kepemilikan fisik perangkat (*something you have*). Aplikasi tidak dapat dibuka hanya dengan mengetahui kata sandi, melainkan mewajibkan kehadiran fisik flashdisk/dongle yang memuat berkas token `.safevault_dongle.json`.
+- **Pengikatan ID Volume:** Menambahkan ID volume (UUID partisi Linux atau Serial Volume Windows) ke dalam hash mencegah penyalinan berkas token ke flashdisk lain (flashdisk salinan akan ditolak karena ID volume berbeda).
+- **Rincian lengkap:** Lihat dokumentasi khusus di [DONGLE.md](file:///home/hisyamlbaihaqi/kuliah/semester56/projek_akhir_kripto/kripto-app/docs/DONGLE.md).
 
 ### 2.3 Biometrik Wajah: Haar Cascade Detector + LBPH Face Recognizer
 - **Algoritma:** Detektor Haar Cascade (`cv2.CascadeClassifier`) + *Local Binary Patterns Histograms* (`cv2.face.LBPHFaceRecognizer`).

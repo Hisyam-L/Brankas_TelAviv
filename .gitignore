@@ -18,6 +18,7 @@ output/
 *.pem
 *.key
 .safevault.key
+.safevault_dongle.json
 dev_dongle.key
 
 # Testing & Coverage

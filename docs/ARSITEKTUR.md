@@ -11,8 +11,9 @@ Aplikasi SafeVault dirancang mengikuti prinsip *Separation of Concerns* (SoC) de
 ```mermaid
 flowchart TD
     subgraph UI_Layer["Lapisan Antarmuka (UI - CustomTkinter)"]
+        DongleGate["DongleGate (Hardware Token Gate)"]
+        LoginWindow["LoginWindow (Face & Password Auth)"]
         MainWindow["MainWindow (Sidebar & Navigasi)"]
-        LoginWindow["LoginWindow (3-Factor Auth)"]
         P1["TextPage (Catatan Rahasia)"]
         P2["FilePage (Berkas Enkripsi)"]
         P3["PasswordPage (Kata Sandi)"]
@@ -22,7 +23,8 @@ flowchart TD
 
     subgraph Service_Auth["Lapisan Autentikasi (auth/)"]
         Session["Session (Active Keys & Memory Clean)"]
-        Dongle["DongleChecker (UsbSerialDongle / pyudev)"]
+        Dongle["DongleManager (SHA-256 Volume-Bound Token)"]
+        DongleWatcher["DongleWatcher (Background Polling Thread)"]
         FaceAuth["FaceAuth (Haar Cascade + LBPH)"]
         PasswordAuth["PasswordAuth (bcrypt)"]
     end
@@ -67,21 +69,24 @@ Proses otentikasi login SafeVault mewajibkan pengguna melewati 3 tahap berurutan
 sequenceDiagram
     autonumber
     actor Pengguna
+    participant Gate as DongleGate
+    participant Dongle as DongleManager
     participant UI as LoginWindow
-    participant Dongle as UsbSerialDongle
     participant Face as FaceAuth (OpenCV)
     participant Auth as PasswordAuth (bcrypt)
     participant Main as MainWindow
+    participant Watcher as DongleWatcher
 
-    Pengguna->>UI: Menjalankan SafeVault
-    Note over UI: Tahap 1: Pemeriksaan Dongle Fisik
-    UI->>Dongle: is_present() & get_serial()
-    alt Dongle tidak ditemukan / serial tidak cocok
-        Dongle-->>UI: None / Serial Berbeda
-        UI->>Pengguna: Status Gagal (+1 percobaan gagal)
-    else Dongle valid
-        Dongle-->>UI: USB Serial Cocok
-        UI->>UI: Buka Tahap 2 (Aktifkan Webcam)
+    Pengguna->>Gate: Menjalankan SafeVault
+    Note over Gate: Tahap 1: Gerbang Dongle Fisik
+    Gate->>Dongle: verify()
+    alt Dongle tidak terpasang / token salah / ID volume tidak cocok
+        Dongle-->>Gate: DongleStatus(ok=False)
+        Gate->>Pengguna: Akses Ditolak (Polling tiap 1 detik)
+    else Dongle valid (Hash 1:1 Cocok)
+        Dongle-->>Gate: DongleStatus(ok=True, mount)
+        Gate->>Gate: Tutup DongleGate
+        Gate->>UI: Buka LoginWindow
         
         Note over UI: Tahap 2: Verifikasi Wajah Biometrik
         Pengguna->>UI: Klik "Cocokkan Wajah"
@@ -91,23 +96,25 @@ sequenceDiagram
             UI->>Pengguna: Akses Ditolak
         else Wajah terverifikasi (distance <= 70.0)
             Face-->>UI: True (Cocok)
-            UI->>UI: Buka Tahap 3 (Input Kata Sandi)
+            UI->>UI: Lanjut ke Tahap 3 (Input Kata Sandi)
             
             Note over UI: Tahap 3: Verifikasi Hash Kata Sandi
-            Pengguna->>UI: Masukkan Kata Sandi Brankas
+            Pengguna->>UI: Masukkan Kata Sandi Akun
             UI->>Auth: verify(username, password)
             alt Hash tidak cocok
                 Auth-->>UI: False (+1 percobaan gagal)
                 UI->>Pengguna: Kata Sandi Salah
             else Hash cocok
                 Auth-->>UI: True (Valid)
-                UI->>UI: Buat objek Session(username, dongle_serial)
+                UI->>UI: Buat Session(username, dongle_mount)
                 UI->>Main: Buka MainWindow(session)
+                Main->>Watcher: start() (Pantau berkala tiap 2 detik)
                 Main->>Pengguna: Tampilkan Brankas 5 Menu
             end
         end
     end
     Note over UI: Jika total percobaan gagal >= 3: Kunci antarmuka 30 detik!
+    Note over Watcher,Main: Jika Dongle dicabut saat MainWindow terbuka: Kunci memori & kembali ke DongleGate!
 ```
 
 ---

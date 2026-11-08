@@ -45,6 +45,7 @@ class FaceAuth:
             DATA_DIR / "haarcascade_frontalface_default.xml",
             Path(getattr(cv2.data, "haarcascades", "/nonexistent")) / "haarcascade_frontalface_default.xml",
             Path("/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml"),
+            Path(__file__).parent.parent / "assets" / "haarcascade_frontalface_default.xml"
         ]
         for p in candidates:
             if p.exists():

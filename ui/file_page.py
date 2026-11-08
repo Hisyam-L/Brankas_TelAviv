@@ -150,9 +150,11 @@ class FilePage(ctk.CTkFrame):
                     ),
                 )
             except FileCipherError as e:
-                self.after(0, lambda: self._on_finish_error(str(e)))
+                msg = str(e)
+                self.after(0, lambda m=msg: self._on_finish_error(m))
             except Exception as e:
-                self.after(0, lambda: self._on_finish_error(f"Error tidak terduga: {e}"))
+                msg = f"Error tidak terduga: {e}"
+                self.after(0, lambda m=msg: self._on_finish_error(m))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -194,9 +196,11 @@ class FilePage(ctk.CTkFrame):
                     ),
                 )
             except FileCipherError as e:
-                self.after(0, lambda: self._on_finish_error(str(e)))
+                msg = str(e)
+                self.after(0, lambda m=msg: self._on_finish_error(m))
             except Exception as e:
-                self.after(0, lambda: self._on_finish_error(f"Gagal dekripsi: {e}"))
+                msg = f"Gagal dekripsi: {e}"
+                self.after(0, lambda m=msg: self._on_finish_error(m))
 
         threading.Thread(target=worker, daemon=True).start()
 

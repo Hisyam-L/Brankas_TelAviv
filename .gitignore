@@ -14,12 +14,6 @@ env/
 # Data & Output SafeVault
 data/
 output/
-*.enc
-*.pem
-*.key
-.safevault.key
-.safevault_dongle.json
-dev_dongle.key
 
 # Testing & Coverage
 .pytest_cache/
